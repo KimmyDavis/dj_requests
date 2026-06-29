@@ -33,11 +33,67 @@ function timeAgo(dateString: string): string {
 
 const DJ_PIN = process.env.NEXT_PUBLIC_DJ_PIN || "0000"
 
+function SongCard({
+  song,
+  playingIds,
+  onMarkPlayed,
+}: {
+  song: Song
+  playingIds: Set<string>
+  onMarkPlayed: (id: string) => void
+}) {
+  return (
+    <div
+      className={`rounded-md bg-violet-400/5 p-5 shadow-[0_10px_40px_-15px_hsl(var(--primary)/0.2)] backdrop-blur transition-all ${
+        song.played ? "opacity-50" : ""
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <p
+            className={`text-sm font-medium ${
+              song.played ? "line-through" : ""
+            }`}
+          >
+            {song.songRequest}
+          </p>
+
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            {song.requestedBy ? (
+              <span>Requested by {song.requestedBy}</span>
+            ) : null}
+            {song.dedicatedTo ? (
+              <span className="italic">Dedicated to {song.dedicatedTo}</span>
+            ) : null}
+            <span className="text-[0.65rem]">{timeAgo(song.createdAt)}</span>
+          </div>
+        </div>
+
+        <Button
+          variant={song.played ? "ghost" : "default"}
+          size="sm"
+          onClick={() => onMarkPlayed(song._id)}
+          disabled={song.played || playingIds.has(song._id)}
+          className={`shrink-0 ${
+            song.played
+              ? "text-muted-foreground"
+              : "bg-violet-600 text-white"
+          }`}
+        >
+          {song.played
+            ? "Played ✓"
+            : playingIds.has(song._id)
+              ? "Marking…"
+              : "Mark played"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export default function DjPage() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    if (typeof window === "undefined") return false
-    return sessionStorage.getItem("dj_auth") === "true"
-  })
+  const [mounted, setMounted] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [pin, setPin] = useState("")
   const [pinError, setPinError] = useState("")
   const [songs, setSongs] = useState<Song[]>([])
@@ -47,11 +103,19 @@ export default function DjPage() {
 
   const loading = isAuthenticated ? !dataLoaded : false
 
+  const unplayedSongs = [...songs]
+    .filter((s) => !s.played)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+  const playedSongs = [...songs]
+    .filter((s) => s.played)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+
   function fetchSongs() {
     setDataLoaded(false)
     setError(null)
 
-    fetch("/api/songs?played=false&sort=asc")
+    fetch("/api/songs")
       .then((res) => {
         if (!res.ok) throw new Error("Failed to fetch requests")
         return res.json()
@@ -64,19 +128,13 @@ export default function DjPage() {
   }
 
   useEffect(() => {
-    if (!isAuthenticated) return
+    const authed = sessionStorage.getItem("dj_auth") === "true"
+    setIsAuthenticated(authed)
+    setMounted(true)
 
-    fetch("/api/songs?played=false&sort=asc")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch requests")
-        return res.json()
-      })
-      .then((data) => setSongs(data.songs ?? []))
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to fetch requests")
-      )
-      .finally(() => setDataLoaded(true))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (authed) {
+      fetchSongs()
+    }
   }, [])
 
   function handleUnlock(e: React.FormEvent) {
@@ -108,9 +166,13 @@ export default function DjPage() {
         if (!res.ok) throw new Error("Failed to mark as played")
         return res.json()
       })
-      .then(() =>
+      .then((data) =>
         setSongs((prev) =>
-          prev.map((s) => (s._id === id ? { ...s, played: true } : s))
+          prev.map((s) =>
+            s._id === id
+              ? { ...s, played: true, updatedAt: data.song.updatedAt }
+              : s
+          )
         )
       )
       .catch(() => setError("Failed to mark song as played"))
@@ -121,6 +183,14 @@ export default function DjPage() {
           return next
         })
       )
+  }
+
+  if (!mounted) {
+    return (
+      <div className="flex min-h-svh items-center justify-center">
+        <div className="size-6 animate-spin rounded-full border-2 border-violet-400 border-t-transparent" />
+      </div>
+    )
   }
 
   if (!isAuthenticated) {
@@ -182,7 +252,7 @@ export default function DjPage() {
             <div>
               <h1 className="text-lg font-medium">Song Queue</h1>
               <p className="text-xs text-muted-foreground">
-                {songs.length} request{songs.length !== 1 ? "s" : ""} in queue
+                {songs.length} total request{songs.length !== 1 ? "s" : ""}
               </p>
             </div>
           </div>
@@ -243,59 +313,32 @@ export default function DjPage() {
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            {songs.map((song) => (
-              <div
-                key={song._id}
-                className={`rounded-md bg-violet-400/5 p-5 shadow-[0_10px_40px_-15px_hsl(var(--primary)/0.2)] backdrop-blur transition-all ${
-                  song.played ? "opacity-50" : ""
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <p
-                      className={`text-sm font-medium ${
-                        song.played ? "line-through" : ""
-                      }`}
-                    >
-                      {song.songRequest}
-                    </p>
-
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      {song.requestedBy ? (
-                        <span>Requested by {song.requestedBy}</span>
-                      ) : null}
-                      {song.dedicatedTo ? (
-                        <span className="italic">
-                          Dedicated to {song.dedicatedTo}
-                        </span>
-                      ) : null}
-                      <span className="text-[0.65rem]">
-                        {timeAgo(song.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <Button
-                    variant={song.played ? "ghost" : "default"}
-                    size="sm"
-                    onClick={() => markAsPlayed(song._id)}
-                    disabled={song.played || playingIds.has(song._id)}
-                    className={`shrink-0 ${
-                      song.played
-                        ? "text-muted-foreground"
-                        : "bg-violet-600 text-white"
-                    }`}
-                  >
-                    {song.played
-                      ? "Played ✓"
-                      : playingIds.has(song._id)
-                        ? "Marking…"
-                        : "Mark played"}
-                  </Button>
+          <div className="space-y-8">
+            {unplayedSongs.length > 0 ? (
+              <section>
+                <h2 className="mb-3 text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+                  Upcoming — {unplayedSongs.length}
+                </h2>
+                <div className="space-y-3">
+                  {unplayedSongs.map((song) => <SongCard key={song._id} song={song} playingIds={playingIds} onMarkPlayed={markAsPlayed} />)}
                 </div>
-              </div>
-            ))}
+              </section>
+            ) : null}
+
+            {playedSongs.length > 0 ? (
+              <section>
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-border/30" />
+                  <h2 className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+                    Played — {playedSongs.length}
+                  </h2>
+                  <div className="h-px flex-1 bg-border/30" />
+                </div>
+                <div className="space-y-3">
+                  {playedSongs.map((song) => <SongCard key={song._id} song={song} playingIds={playingIds} onMarkPlayed={markAsPlayed} />)}
+                </div>
+              </section>
+            ) : null}
           </div>
         )}
       </div>
