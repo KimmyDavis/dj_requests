@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { ListMusic, Lock, LockKeyhole, RefreshCw, SendHorizontal } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { ListMusic, Lock, LockKeyhole, Plus, RefreshCw, SendHorizontal, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
@@ -100,6 +100,10 @@ export default function DjPage() {
   const [error, setError] = useState<string | null>(null)
   const [dataLoaded, setDataLoaded] = useState(false)
   const [playingIds, setPlayingIds] = useState<Set<string>>(new Set())
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
+  const [quickSong, setQuickSong] = useState("")
+  const [quickRequester, setQuickRequester] = useState("DJ")
+  const [quickAdding, setQuickAdding] = useState(false)
 
   const loading = isAuthenticated ? !dataLoaded : false
 
@@ -126,6 +130,18 @@ export default function DjPage() {
       )
       .finally(() => setDataLoaded(true))
   }
+
+  const fetchSongsRef = useRef(fetchSongs)
+
+  useEffect(() => {
+    fetchSongsRef.current = fetchSongs
+  })
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const interval = setInterval(() => fetchSongsRef.current(), 10000)
+    return () => clearInterval(interval)
+  }, [isAuthenticated])
 
   useEffect(() => {
     const authed = sessionStorage.getItem("dj_auth") === "true"
@@ -183,6 +199,34 @@ export default function DjPage() {
           return next
         })
       )
+  }
+
+  async function handleQuickAdd(e: React.FormEvent) {
+    e.preventDefault()
+    if (!quickSong.trim()) return
+
+    setQuickAdding(true)
+
+    try {
+      const res = await fetch("/api/songs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          songRequest: quickSong.trim(),
+          username: "dj",
+          requestedBy: quickRequester.trim() || undefined,
+        }),
+      })
+      if (!res.ok) throw new Error("Failed to add song")
+      setQuickSong("")
+      setQuickRequester("DJ")
+      setQuickAddOpen(false)
+      fetchSongs()
+    } catch {
+      setError("Failed to add song to queue")
+    } finally {
+      setQuickAdding(false)
+    }
   }
 
   if (!mounted) {
@@ -279,6 +323,65 @@ export default function DjPage() {
             </Button>
           </div>
         </header>
+
+        {/* Quick add */}
+        <div className="mb-6">
+          {quickAddOpen ? (
+            <form
+              onSubmit={handleQuickAdd}
+              className="rounded-md bg-violet-400/5 p-4 shadow-[0_10px_40px_-15px_hsl(var(--primary)/0.2)]"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Quick add
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setQuickAddOpen(false)}
+                  className="flex size-6 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <input
+                  value={quickSong}
+                  onChange={(e) => setQuickSong(e.target.value)}
+                  placeholder="Song title, artist, or link"
+                  required
+                  autoFocus
+                  className="w-full rounded-lg border border-input bg-background/70 px-4 py-2.5 text-sm shadow-sm transition outline-none focus:border-ring focus:ring-2 focus:ring-ring/40"
+                />
+                <div className="flex items-center gap-2">
+                  <input
+                    value={quickRequester}
+                    onChange={(e) => setQuickRequester(e.target.value)}
+                    placeholder="Requested by"
+                    className="w-full rounded-lg border border-input bg-background/70 px-4 py-2.5 text-sm shadow-sm transition outline-none focus:border-ring focus:ring-2 focus:ring-ring/40"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={quickAdding || !quickSong.trim()}
+                    className="shrink-0 bg-violet-600 text-white"
+                  >
+                    {quickAdding ? "Adding…" : "Add"}
+                  </Button>
+                </div>
+              </div>
+            </form>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setQuickAddOpen(true)}
+              className="w-full border-dashed text-xs text-muted-foreground"
+            >
+              <Plus className="size-3.5" />
+              Quick add a song
+            </Button>
+          )}
+        </div>
 
         {loading ? (
           <div className="space-y-3">
